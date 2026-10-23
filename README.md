@@ -34,7 +34,7 @@ Long sessions fill the context window, and compaction alone keeps only a short s
 
 ### How it works
 
-1. After each turn of the main session, the mod checks the context size. Past the threshold (350k tokens by default) it **arms** a handoff and shows a notice.
+1. After each turn of the main session, the mod checks the context size. Past the threshold (300k tokens by default) it **arms** a handoff and shows a notice.
 2. With your next message, the mod writes a **conversation inventory** taken from the transcript, not from the model's memory: your messages verbatim, every file touched and with which tools, shell commands, searches, subagents launched and tool errors.
 3. In the same turn, before handling your message, the session's own agent goes through the whole conversation, uses the inventory as a checklist, carries over the previous handoff if there is one, records `git status` and `git diff --stat`, and writes a **handoff** with:
    - goal and current state
@@ -58,13 +58,13 @@ The handoff is written by the session's own model on purpose: the conversation i
 
 | Option | Default | What it sets |
 | --- | --- | --- |
-| `thresholdK` | `350` | Context size, in thousands of tokens, that arms a handoff. Keep it below the auto-compact window, or Claude Code's own compaction comes first. |
-| `retentionDays` | `7` | When a session starts, handoff folders of other sessions untouched for this many days are deleted. `0` keeps them forever. |
+| `thresholdK` | `300` | Context size, in thousands of tokens, that arms a handoff. Keep it below the auto-compact window, or Claude Code's own compaction comes first. |
+| `retentionDays` | `2` | When a session starts, handoff folders of other sessions untouched for this many days are deleted. `0` keeps them forever. |
 
 Set them when installing, with `/plugin configure context-handoff@claude-mods` in a terminal session, or in `~/.claude/settings.json`:
 
 ```json
-{ "pluginConfigs": { "context-handoff@claude-mods": { "options": { "thresholdK": 300, "retentionDays": 14 } } } }
+{ "pluginConfigs": { "context-handoff@claude-mods": { "options": { "thresholdK": 350, "retentionDays": 7 } } } }
 ```
 
 ### Files

@@ -261,8 +261,8 @@ const compactWhenIdle = ($: EngineInterface, n: number, paths: Paths, attempt: n
 }
 
 export const register: Register = (on, options) => {
-  const threshold = Math.max(50, Number(options.thresholdK) || 350) * 1000
-  const retentionDays = Math.max(0, Number(options.retentionDays ?? 7))
+  const threshold = Math.max(50, Number(options.thresholdK) || 300) * 1000
+  const retentionDays = Math.max(0, Number(options.retentionDays ?? 2))
 
   on('session.start', async ($, e, next) => {
     void pruneOld($, retentionDays).catch(() => undefined)

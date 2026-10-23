@@ -1,8 +1,11 @@
 {
   "name": "context-handoff",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Watches the context window; past a threshold the agent writes a handoff with your next message, then the session compacts and gets it back.",
-  "author": { "name": "igorfduarte", "url": "https://github.com/igorfduarte" },
+  "author": {
+    "name": "igorfduarte",
+    "url": "https://github.com/igorfduarte"
+  },
   "homepage": "https://github.com/igorfduarte/claude-mods/tree/main/plugins/context-handoff",
   "repository": "https://github.com/igorfduarte/claude-mods",
   "license": "MIT",
@@ -12,13 +15,13 @@
       "type": "number",
       "title": "Threshold (thousand tokens)",
       "description": "Context size, in thousands of tokens, at which the handoff and compaction start. Keep it below the auto-compact window.",
-      "default": 350
+      "default": 300
     },
     "retentionDays": {
       "type": "number",
       "title": "Keep handoffs (days)",
       "description": "Handoff folders of other sessions untouched for this many days are deleted when a session starts; 0 keeps them forever.",
-      "default": 7
+      "default": 2
     }
   }
 }
