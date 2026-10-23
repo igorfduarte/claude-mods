@@ -47,10 +47,10 @@ Long sessions fill the context window, and compaction alone keeps only a short s
    - files to re-read after compaction
 
    Then it handles your message as usual and adds what it did to the handoff.
-4. After that turn the mod compacts the session.
+4. After that turn the mod compacts the session. Where Claude Code does not let a mod compact directly (the desktop app and other SDK hosts), it runs `/compact` for you.
 5. Your following message carries the handoff and the inventory to the agent, unseen in the chat, and the agent re-reads the files it listed before answering.
 
-`/handoff` arms a cycle on demand, without waiting for the threshold.
+`/context-handoff` arms a cycle on demand, without waiting for the threshold.
 
 The handoff is written by the session's own model on purpose: the conversation is already in its prompt cache, so reading it back costs little, and only that agent can re-read files and run `git`. A separate model would read the whole conversation again uncached.
 
@@ -75,7 +75,8 @@ Each session gets a folder `~/.claude/handoffs/<session-id>/` with `handoff-N.md
 
 - The mod acts at the end of a turn. If Claude Code's auto-compaction fires first, in the middle of a very long turn, the mod does not intercept it: keep the threshold well below the auto-compact window.
 - The handoff rides on your next message rather than a turn of its own, because the desktop app does not run turns started by a mod. The cycle needs one more message from you to start.
-- If a cycle is interrupted or the handoff is not written, the mod does not retry by itself until the session compacts; `/handoff` arms it again.
+- If a cycle is interrupted or the handoff is not written, the mod does not retry by itself until the session compacts; `/context-handoff` arms it again.
+- If the session cannot compact by itself, a notice asks you to run `/compact`; the handoff still comes back with your next message.
 
 ### Uninstall
 

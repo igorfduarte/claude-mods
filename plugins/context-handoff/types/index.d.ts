@@ -11,6 +11,8 @@ declare module 'claude-code' {
       requestedAt: number
       /** The cycle whose files go with the next prompt, once the session compacted. */
       pending: number | null
+      /** The cycle whose handoff is written and waits for a compaction, the mod's own or a /compact. */
+      written: number | null
       /** True after a failed or interrupted cycle: no automatic retry until a compaction. */
       isHeld: boolean
     }

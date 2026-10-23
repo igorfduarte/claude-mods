@@ -7,7 +7,7 @@
       "name": "context-handoff",
       "source": "./plugins/context-handoff",
       "description": "Past a context threshold, writes a handoff and a conversation inventory, compacts, and hands them back with the next message.",
-      "version": "0.3.0",
+      "version": "0.4.2",
       "category": "mod"
     }
   ]

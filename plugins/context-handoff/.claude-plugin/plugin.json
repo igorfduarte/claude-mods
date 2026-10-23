@@ -1,6 +1,6 @@
 {
   "name": "context-handoff",
-  "version": "0.3.0",
+  "version": "0.4.2",
   "description": "Watches the context window; past a threshold the agent writes a handoff with your next message, then the session compacts and gets it back.",
   "author": { "name": "igorfduarte", "url": "https://github.com/igorfduarte" },
   "homepage": "https://github.com/igorfduarte/claude-mods/tree/main/plugins/context-handoff",

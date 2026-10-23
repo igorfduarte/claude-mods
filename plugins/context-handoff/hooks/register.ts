@@ -5,6 +5,7 @@ const phase = atom({ plugin: 'context-handoff', key: 'phase' } as const, 'idle')
 const cycle = atom({ plugin: 'context-handoff', key: 'cycle' } as const, 0)
 const requestedAt = atom({ plugin: 'context-handoff', key: 'requestedAt' } as const, 0)
 const pending = atom({ plugin: 'context-handoff', key: 'pending' } as const, null)
+const written = atom({ plugin: 'context-handoff', key: 'written' } as const, null)
 const isHeld = atom({ plugin: 'context-handoff', key: 'isHeld' } as const, false)
 
 // Prompts no person typed never carry the handoff; the desktop app's own origin varies by host, so the rest do.
@@ -76,8 +77,11 @@ const buildInventory = (messages: readonly SessionMessage[], header: string[]) =
 
   for (const m of messages) {
     if (m.role === 'user') {
-      const text = m.text.trim()
-      if (text) prompts.push(text)
+      // The engine's own notes ride in the user's rows; a slash command is kept as its name alone.
+      const text = m.text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+      const command = /^<command-name>\s*(\S+?)\s*<\/command-name>/.exec(text)
+      if (command) prompts.push(`(ran ${command[1]})`)
+      else if (text) prompts.push(text)
       continue
     }
     for (const use of m.toolUses) {
@@ -209,7 +213,29 @@ const prepareHandoff = async ($: EngineInterface, tokens: number, threshold: num
 const giveUp = async ($: EngineInterface, why: string) => {
   await update($, phase, () => 'idle')
   await update($, isHeld, () => true)
-  $.ui.toast(`context-handoff: ${why}. No automatic retry until the session compacts; /handoff arms it again.`)
+  $.ui.toast(`context-handoff: ${why}. No automatic retry until the session compacts; /context-handoff arms it again.`)
+}
+
+// The handoff is written but the session did not compact by itself: a /compact by the person still hands it back.
+const askForCompact = async ($: EngineInterface, why: string) => {
+  await update($, phase, () => 'idle')
+  $.ui.log(`context-handoff: automatic compaction failed: ${why}`, { to: 'debug' })
+  $.ui.toast(`context-handoff: the handoff is written but the session could not compact by itself (${why}). Run /compact; the handoff comes back with your next message.`)
+}
+
+// The mod's own session.compact hook does not run for a /compact it raised (the re-entry rule), so it hands the
+// handoff back here too.
+const compactByCommand = async ($: EngineInterface, n: number, paths: Paths) => {
+  try {
+    await $.command.run({ command: 'compact', args: compactInstructions(paths) })
+    if ((await read($, written)) !== n) return
+    await update($, written, () => null)
+    await update($, pending, () => n)
+    await update($, phase, () => 'idle')
+    $.ui.toast('Session compacted: the handoff goes with your next message')
+  } catch (error) {
+    await askForCompact($, error instanceof Error ? error.message : String(error))
+  }
 }
 
 // Compacting rejects while a turn runs; the handoff turn is still closing when its turn.complete fires.
@@ -217,12 +243,19 @@ const compactWhenIdle = ($: EngineInterface, n: number, paths: Paths, attempt: n
   $.clock.after(1000, () => {
     void $.session.compact({ instructions: compactInstructions(paths) }).then(
       async result => {
-        if (result.skip !== undefined) return giveUp($, `compaction skipped (${result.skip})`)
+        if (result.skip !== undefined) return askForCompact($, `skipped: ${result.skip}`)
+        await update($, written, () => null)
         await update($, pending, () => n)
         await update($, phase, () => 'idle')
         $.ui.toast('Session compacted: the handoff goes with your next message')
       },
-      () => (attempt < COMPACT_TRIES ? compactWhenIdle($, n, paths, attempt + 1) : giveUp($, 'could not compact')),
+      (error: unknown) => {
+        const why = error instanceof Error ? error.message : String(error)
+        $.ui.log(`context-handoff: compact attempt ${attempt} rejected: ${why}`, { to: 'debug' })
+        // An SDK host (the desktop app, -p) compacts only inside a turn: run /compact as a command there instead.
+        if (/not available in a headless/i.test(why)) return compactByCommand($, n, paths)
+        return attempt < COMPACT_TRIES ? compactWhenIdle($, n, paths, attempt + 1) : askForCompact($, why)
+      },
     )
   })
 }
@@ -234,13 +267,13 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     void pruneOld($, retentionDays).catch(() => undefined)
     await $.command.register({
-      name: 'handoff',
+      name: 'context-handoff',
       description: 'Arm a handoff: written with your next message, then the session compacts and gets it back',
     })
     return next(e)
   })
 
-  on('command.run', { command: 'handoff' }, async $ => {
+  on('command.run', { command: 'context-handoff' }, async $ => {
     const now = await read($, phase)
     if (now === 'armed') return { text: 'Already armed: the handoff is written with your next message.' }
     if (now !== 'idle') return { text: 'A handoff is already under way.' }
@@ -267,6 +300,7 @@ export const register: Register = (on, options) => {
         await giveUp($, `no handoff was written at ${paths.handoff}`)
         return result
       }
+      await update($, written, () => n)
       await update($, phase, () => 'compacting')
       compactWhenIdle($, n, paths, 1)
       return result
@@ -278,11 +312,18 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  // Any compaction of the main conversation re-arms the watch, /compact typed by the person included.
+  // Any compaction of the main conversation re-arms the watch, /compact typed by the person included, and hands
+  // back a handoff that was written and still waits for one.
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined) {
       await update($, isHeld, () => false)
+      const n = await read($, written)
+      if (n !== null) {
+        await update($, written, () => null)
+        await update($, pending, () => n)
+        await update($, phase, () => 'idle')
+      }
     }
     return result
   })
