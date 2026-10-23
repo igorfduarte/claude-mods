@@ -5,6 +5,8 @@ export type Run = {
   id: string
   agentId?: string
   type: string
+  /** The run's own color, picked when it started; unset, its type's color. */
+  color?: string
   description: string
   model: string
   effort?: string

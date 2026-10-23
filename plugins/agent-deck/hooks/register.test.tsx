@@ -8,8 +8,18 @@ const STEP = 'mcp__agent-deck__step'
 const band = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} }
 const pane = { title: 'Agents', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } as const
 
-// Two subagents start; the engine beneath answers each spawn with its id.
-async function twoAgents($: Engine, on: On) {
+const TWO: [string, string][] = [
+  ['Review the parser', 'general-purpose'],
+  ['Map the tests', 'Explore'],
+]
+const THREE_ALIKE: [string, string][] = [
+  ['Count the files', 'general-purpose'],
+  ['Read the README', 'general-purpose'],
+  ['List the hooks', 'general-purpose'],
+]
+
+// Subagents start; the engine beneath answers each spawn with its id.
+async function twoAgents($: Engine, on: On, agents = TWO) {
   mock.clock(on, { now: Date.parse('2026-10-22T12:00:00Z') })
   const prompts: string[] = []
   const opened: string[] = []
@@ -44,9 +54,19 @@ async function twoAgents($: Engine, on: On) {
       fork: false,
     } as never)
 
-  await spawn('Review the parser', 'general-purpose')
-  await spawn('Map the tests', 'Explore')
+  for (const [description, type] of agents) await spawn(description, type)
   return { prompts, opened }
+}
+
+// The color of each row's type label in the panel, top to bottom.
+async function typeColors($: Engine, surface: 'terminal' | 'desktop'): Promise<string[]> {
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: 'agent-deck', props: pane })
+  const colors =
+    surface === 'desktop'
+      ? (await ui.findAll({ type: 'Svg' })).flatMap(el => [...String(el.props.source).matchAll(/<tspan fill="(#[0-9a-f]{6})" font-weight="600">/gi)].map(m => m[1] ?? ''))
+      : (await ui.findAll({ type: 'Text', text: /^general-purpose$/ })).map(el => String(el.props.color))
+  await ui.unmount()
+  return colors
 }
 
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -102,6 +122,20 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const after = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: band })
     expect(await after.find({ key: 'deck-agents' })).toBeUndefined()
     await after.unmount()
+  })
+
+  test(`${surface}: subagents of one type each wear their own color`, async ($, on) => {
+    await twoAgents($, on, THREE_ALIKE)
+    const colors = await typeColors($, surface)
+    expect(colors.length).toBe(3)
+    expect(new Set(colors).size).toBe(3)
+  })
+
+  test(`${surface}: with colors set to type, one type shares a color`, { options: { colors: 'type' } }, async ($, on) => {
+    await twoAgents($, on, THREE_ALIKE)
+    const colors = await typeColors($, surface)
+    expect(colors.length).toBe(3)
+    expect(new Set(colors).size).toBe(1)
   })
 
   test(`${surface}: a narrow band still fits its row`, async ($, on) => {

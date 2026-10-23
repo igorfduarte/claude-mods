@@ -1,6 +1,6 @@
 {
   "name": "agent-deck",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A live side panel of the session's subagents (model, current activity, context, time) and a progress bar above the prompt. /subagents opens or closes the panel.",
   "author": {
     "name": "igorfduarte",
@@ -24,6 +24,13 @@
       "description": "on: asks each subagent to report its steps (a real progress bar per agent); off: an indeterminate bar while it runs",
       "default": "on",
       "options": ["on", "off"]
+    },
+    "colors": {
+      "type": "string",
+      "title": "Colors",
+      "description": "agent: each subagent gets its own color; type: subagents of one type share a color",
+      "default": "agent",
+      "options": ["agent", "type"]
     }
   }
 }

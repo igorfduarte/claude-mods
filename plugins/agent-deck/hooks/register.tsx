@@ -100,15 +100,29 @@ const KNOWN_COLOR: Record<string, string> = {
   fork: '#D4537E',
   'claude-code-guide': '#2E9BD6',
 }
-const PALETTE = ['#7C6CF2', '#2E9BD6', '#16A37F', '#E07B39', '#D4537E', '#C29A1C', '#5B8DEF', '#A35BD6', '#3FA8A0', '#CF5C4A']
+// Neighbours differ most, and nothing reads as the failed red or the stopped grey.
+const PALETTE = ['#7C6CF2', '#E07B39', '#2E9BD6', '#D4537E', '#16A37F', '#C29A1C', '#A35BD6', '#3FA8A0', '#5B8DEF', '#7F9F2E']
 const hash = (s: string): number => [...s].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0, 7)
 const colorOf = (type: string): string => KNOWN_COLOR[bareType(type)] ?? PALETTE[hash(type) % PALETTE.length] ?? '#7C6CF2'
+
+// A run's own color, given when it started; runs from before colors were per
+// run, or with `colors: type`, wear their type's.
+const runColor = (r: Run): string => r.color ?? colorOf(r.type)
+
+// The color for a new run: one no running run wears, the one worn longest ago
+// first, so runs side by side never share one while the palette lasts.
+const pickColor = (list: readonly Run[]): string => {
+  const worn = new Set(list.filter(isRunning).map(runColor))
+  const lastWorn = (c: string): number => list.reduce((at, r, i) => (runColor(r) === c ? i : at), -1)
+  const free = PALETTE.filter(c => !worn.has(c))
+  return [...(free.length ? free : PALETTE)].sort((a, b) => lastWorn(a) - lastWorn(b))[0] ?? '#7C6CF2'
+}
 
 const FAILED = '#D9534F'
 const STOPPED = '#9A9AA0'
 const GOOD = '#3B9C5F'
 const ACCENT = '#7C6CF2'
-const fillOf = (r: Run): string => (r.status === 'failed' ? FAILED : r.status === 'stopped' ? STOPPED : colorOf(r.type))
+const fillOf = (r: Run): string => (r.status === 'failed' ? FAILED : r.status === 'stopped' ? STOPPED : runColor(r))
 
 // Shifts a #rrggbb color toward black (amount < 0) or white (amount > 0).
 const shade = (hex: string, amount: number): string => {
@@ -211,7 +225,7 @@ const CSS = `<style>
 const svg = (W: number, H: number, body: string, extraCss = ''): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${CSS}${extraCss}${body}</svg>`
 
-// A 16×16 pixel robot in the agent type's color. Running, it bobs, steps,
+// A 16×16 pixel robot in the run's color. Running, it bobs, steps,
 // looks around and blinks; finished, it smiles; failed, its eyes go red.
 const bot = (x: number, y: number, color: string, status: RunStatus, scale = 2): string => {
   const groups: Record<'bd' | 'la' | 'lb', string[]> = { bd: [], la: [], lb: [] }
@@ -256,7 +270,7 @@ const bot = (x: number, y: number, color: string, status: RunStatus, scale = 2):
 }
 
 const statusMark = (x: number, y: number, r: Run): string => {
-  if (r.status === 'running') return `<circle class="pulse" cx="${x}" cy="${y}" r="3.5" fill="${colorOf(r.type)}"/>`
+  if (r.status === 'running') return `<circle class="pulse" cx="${x}" cy="${y}" r="3.5" fill="${runColor(r)}"/>`
   if (r.status === 'done')
     return `<path d="M${x - 5} ${y}l3.5 3.5 6.5-7" fill="none" stroke="${GOOD}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`
   if (r.status === 'failed')
@@ -279,7 +293,7 @@ const headerSvg = (W: number, list: readonly Run[], at: number, s: Strings): str
 const ROW_H = 70
 
 const rowSvg = (W: number, r: Run, at: number, s: Strings): string => {
-  const color = colorOf(r.type)
+  const color = runColor(r)
   const X = 46
   const textW = W - X - 22
   const steps = r.stepTotal ? `${Math.min(r.stepDone ?? 0, r.stepTotal)}/${r.stepTotal}` : ''
@@ -477,6 +491,7 @@ export const register: Register = (on, options) => {
   const s = STRINGS
   const stepReports = options.stepReports !== 'off'
   const autoOpen = options.autoOpen !== 'off'
+  const colorPerRun = options.colors !== 'type'
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -563,6 +578,7 @@ export const register: Register = (on, options) => {
             id,
             agentId: started.agentId,
             type: e.subagentType,
+            color: colorPerRun ? pickColor(list) : undefined,
             description: oneLine(e.description),
             model: started.model,
             isBackground: e.background,
@@ -718,7 +734,7 @@ export const register: Register = (on, options) => {
     const cols = Math.max(24, e.props.bodyColumns || 40)
     const barW = Math.max(6, Math.min(24, cols - 30))
     const row = (r: Run) => {
-      const color = colorOf(r.type)
+      const color = runColor(r)
       const steps = r.stepTotal ? `${Math.min(r.stepDone ?? 0, r.stepTotal)}/${r.stepTotal} ` : ''
       const doing = isRunning(r) ? r.stepNote || r.activity || (r.steps ? s.thinking : s.starting) : s[r.status as 'done' | 'failed' | 'stopped']
       return (

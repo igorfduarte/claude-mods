@@ -14,7 +14,7 @@
       "name": "agent-deck",
       "source": "./plugins/agent-deck",
       "description": "A live side panel of the session's subagents and a progress bar above the prompt. Inspired by savvy-progress by JohnnyVizz.",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "category": "mod"
     }
   ]

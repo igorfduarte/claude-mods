@@ -94,7 +94,7 @@ Inspired by [savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/
 
 ### Progress bar
 
-Above the prompt, for the current batch (the subagents started while others still run): one segment per subagent in its type's color. A segment fills as the subagent reports its steps, pulses while it works without reporting, and turns red if it failed. Beside it: how many are done and running, the percent and the elapsed time. `×N` opens or closes the panel, and `✕` hides the bar until the next batch. Once every subagent has ended the bar reads **All done**, and it steps aside with your next message.
+Above the prompt, for the current batch (the subagents started while others still run): one segment per subagent. A segment fills as the subagent reports its steps, pulses while it works without reporting, and turns red if it failed. Beside it: how many are done and running, the percent and the elapsed time. `×N` opens or closes the panel, and `✕` hides the bar until the next batch. Once every subagent has ended the bar reads **All done**, and it steps aside with your next message.
 
 ### Agents panel
 
