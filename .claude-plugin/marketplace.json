@@ -1,0 +1,14 @@
+{
+  "name": "claude-mods",
+  "owner": { "name": "igorfduarte", "url": "https://github.com/igorfduarte" },
+  "metadata": { "description": "Claude Code mods by igorfduarte." },
+  "plugins": [
+    {
+      "name": "context-handoff",
+      "source": "./plugins/context-handoff",
+      "description": "Past a context threshold, writes a handoff and a conversation inventory, compacts, and hands them back with the next message.",
+      "version": "0.3.0",
+      "category": "mod"
+    }
+  ]
+}
