@@ -9,6 +9,13 @@
       "description": "Past a context threshold, writes a handoff and a conversation inventory, compacts, and hands them back with the next message.",
       "version": "0.4.3",
       "category": "mod"
+    },
+    {
+      "name": "agent-deck",
+      "source": "./plugins/agent-deck",
+      "description": "A live side panel of the session's subagents and a progress bar above the prompt. Inspired by savvy-progress by JohnnyVizz.",
+      "version": "0.2.0",
+      "category": "mod"
     }
   ]
 }

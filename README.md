@@ -5,13 +5,15 @@ Mods for [Claude Code](https://claude.com/claude-code). Each one is a standalone
 | Mod | What it does |
 | --- | --- |
 | [context-handoff](#context-handoff) | Watches the context window. Past a threshold, the agent writes a thorough handoff, the session compacts, and the handoff comes back with your next message, so long sessions keep their context. |
+| [agent-deck](#agent-deck) | A live side panel of every subagent in the session (what it is doing, its steps, context and time) and a progress bar above the prompt for the subagents running now. |
 
 ## Install
 
-At the prompt of a Claude Code terminal session:
+At the prompt of a Claude Code terminal session, with the mod's name from the table:
 
 ```
 /plugin install context-handoff --marketplace igorfduarte/claude-mods
+/plugin install agent-deck --marketplace igorfduarte/claude-mods
 ```
 
 Answer `y` to add the marketplace, pick a scope (user is the default), and set the options or keep the defaults.
@@ -19,7 +21,7 @@ Answer `y` to add the marketplace, pick a scope (user is the default), and set t
 From a shell:
 
 ```bash
-claude plugin install context-handoff --marketplace igorfduarte/claude-mods
+claude plugin install agent-deck --marketplace igorfduarte/claude-mods
 ```
 
 In the desktop app, where `/plugin` does not run: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `igorfduarte/claude-mods`, then **Add plugin**.
@@ -82,6 +84,55 @@ Each session gets a folder `~/.claude/handoffs/<session-id>/` with `handoff-N.md
 
 ```bash
 claude plugin uninstall context-handoff@claude-mods
+```
+
+## agent-deck
+
+A live view of the subagents a session runs, in the background or not.
+
+Inspired by [savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) by [JohnnyVizz](https://github.com/JohnnyVizz): its agents panel and progress bar, made for any subagent rather than one workflow.
+
+### Progress bar
+
+Above the prompt, for the current batch (the subagents started while others still run): one segment per subagent in its type's color. A segment fills as the subagent reports its steps, pulses while it works without reporting, and turns red if it failed. Beside it: how many are done and running, the percent and the elapsed time. `×N` opens or closes the panel, and `✕` hides the bar until the next batch. Once every subagent has ended the bar reads **All done**, and it steps aside with your next message.
+
+### Agents panel
+
+`/subagents` opens or closes it, and `/subagents open` only opens it. It also opens by itself when a new batch starts.
+
+- A header with the subagents running out of the total, output tokens and time.
+- One row per subagent: a pixel robot that walks while it works, smiles when done and turns red-eyed on an error; the task's description; its type, model and effort, and whether it runs in the background; what it does now, read off its latest tool calls (`Grep · invalidateCache`); its reported steps (`2/5 · reading the tests`); context size, output tokens and time.
+- Finished subagents collapse under their own heading and can be cleared.
+
+In a terminal session both draw as text.
+
+### Step reports
+
+To fill each subagent's bar, the mod registers a `step` tool and appends one paragraph to every subagent's brief, asking it to report its plan and its progress through that tool. That changes every subagent's prompt slightly and costs a few cheap tool calls. With `stepReports` off, briefs are left as they are and each bar sweeps while its subagent works.
+
+### Options
+
+| Option | Default | What it sets |
+| --- | --- | --- |
+| `autoOpen` | `on` | Opens the panel by itself when a new batch of subagents starts; `off` opens it only with `/subagents`. |
+| `stepReports` | `on` | Asks each subagent to report its steps, as above. |
+
+Set them when installing, with `/plugin configure agent-deck@claude-mods` in a terminal session, or in `~/.claude/settings.json`:
+
+```json
+{ "pluginConfigs": { "agent-deck@claude-mods": { "options": { "autoOpen": "off" } } } }
+```
+
+### Limits
+
+- No cost estimate: the panel counts tokens, not dollars.
+- Context is shown in tokens (the latest request's prompt and output), not as a share of the window.
+- A subagent stopped from outside, whose end no event reports, is marked ended once Claude Code's own agent list no longer has it.
+
+### Uninstall
+
+```bash
+claude plugin uninstall agent-deck@claude-mods
 ```
 
 ## License

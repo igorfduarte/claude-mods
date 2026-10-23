@@ -1,0 +1,29 @@
+{
+  "name": "agent-deck",
+  "version": "0.2.0",
+  "description": "A live side panel of the session's subagents (model, current activity, context, time) and a progress bar above the prompt. /subagents opens or closes the panel.",
+  "author": {
+    "name": "igorfduarte",
+    "url": "https://github.com/igorfduarte"
+  },
+  "homepage": "https://github.com/igorfduarte/claude-mods/tree/main/plugins/agent-deck",
+  "repository": "https://github.com/igorfduarte/claude-mods",
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoOpen": {
+      "type": "string",
+      "title": "Open the panel by itself",
+      "description": "on: opens the panel when a new batch of subagents starts; off: only with /subagents",
+      "default": "on",
+      "options": ["on", "off"]
+    },
+    "stepReports": {
+      "type": "string",
+      "title": "Step-based progress",
+      "description": "on: asks each subagent to report its steps (a real progress bar per agent); off: an indeterminate bar while it runs",
+      "default": "on",
+      "options": ["on", "off"]
+    }
+  }
+}
