@@ -1,14 +1,16 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, SessionMessage } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, SessionMessage } from 'claude-code'
 
 const phase = atom({ plugin: 'context-handoff', key: 'phase' } as const, 'idle')
 const cycle = atom({ plugin: 'context-handoff', key: 'cycle' } as const, 0)
 const requestedAt = atom({ plugin: 'context-handoff', key: 'requestedAt' } as const, 0)
-const pending = atom({ plugin: 'context-handoff', key: 'pending' } as const, null)
+const pendingPath = atom({ plugin: 'context-handoff', key: 'pendingPath' } as const, null)
 const written = atom({ plugin: 'context-handoff', key: 'written' } as const, null)
+const lastWritten = atom({ plugin: 'context-handoff', key: 'lastWritten' } as const, null)
 const isHeld = atom({ plugin: 'context-handoff', key: 'isHeld' } as const, false)
 
-// Prompts no person typed never carry the handoff; the desktop app's own origin varies by host, so the rest do.
+// Prompts no person typed carry the handoff only when `carryOrigins` names their origin; the desktop app's own
+// origin varies by host, so the rest do. The handoff needs a turn whose message the agent handles to its end.
 const NOT_PERSON = new Set([
   'plugin',
   'task-notification',
@@ -20,16 +22,28 @@ const NOT_PERSON = new Set([
   'observer-activity',
   'auto-continuation',
 ])
+// Never carried: the mod's own and other plugins' prompts (the re-entry rule), an observer's traffic, which reaches
+// another agent's loop, and the engine's follow-up to a UI action, which is read as queued.
+const NEVER_CARRY = new Set(['plugin', 'observer', 'observer-activity', 'auto-continuation'])
 const COMPACT_TRIES = 30
 // The engine reads a context block past 100,000 characters as a head and a path, and 200,000 in all.
 const MAX_BLOCK_CHARS = 95_000
+// The inventory's received messages, newest kept first; the agent reads the file in pages.
+const MAX_MESSAGES_CHARS = 150_000
 const FILE_KEYS = ['file_path', 'notebook_path']
+// The mod's own blocks ride in the rows they were attached to; the inventory leaves them out.
+const OWN_BLOCKS = /\[context-handoff\] The context window|This session was just (?:compacted|cleared) by the context-handoff mod/
 
-type Paths = { handoff: string; inventory: string }
+type Paths = { handoff: string; inventory: string; lastTurn: string }
+type AfterHandoff = 'compact' | 'clear'
 
 const kTokens = (n: number) => `${Math.round(n / 1000)}k`
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}… [+${text.length - max} chars]` : text)
+
+// A list option arrives as a string from the config menu, or as a list from settings written by hand.
+const listOption = (value: PluginOptions[string] | undefined) =>
+  (Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[\s,;]+/) : []).map(s => String(s).trim()).filter(Boolean)
 
 const handoffsRoot = async ($: EngineInterface) => {
   const home = ((await $.env.get('USERPROFILE')) || (await $.env.get('HOME')) || '').replace(/\\/g, '/')
@@ -62,12 +76,91 @@ const pruneOld = async ($: EngineInterface, days: number) => {
 
 const pathsOf = async ($: EngineInterface, n: number): Promise<Paths> => {
   const dir = await sessionDir($)
-  return { handoff: `${dir}/handoff-${n}.md`, inventory: `${dir}/inventory-${n}.md` }
+  return { handoff: `${dir}/handoff-${n}.md`, inventory: `${dir}/inventory-${n}.md`, lastTurn: `${dir}/last-turn-${n}.md` }
+}
+
+// The handoff's path names the cycle's other files; a /clear leaves them under the session id that wrote them.
+const pathsFromHandoff = (handoff: string): Paths => ({
+  handoff,
+  inventory: handoff.replace(/handoff-(\d+)\.md$/, 'inventory-$1.md'),
+  lastTurn: handoff.replace(/handoff-(\d+)\.md$/, 'last-turn-$1.md'),
+})
+
+// Where a received message came from, read off its text: the engine frames what no person typed.
+const sourceOf = (m: SessionMessage, text: string) => {
+  if (/^<task-notification>/.test(text)) return 'task notification'
+  if (/\[Subagent hand-back\]/.test(text)) return 'subagent report'
+  if (/^(?:<side-sessions-event>|<teammate-message|<cross-session-message|Another Claude session)/.test(text)) return 'another session'
+  if (/^This session is being continued from a previous conversation/.test(text)) return 'compaction summary'
+  if (m.toolResults?.length) return 'delivered mid-turn'
+  return 'user'
+}
+
+// A user row's own words: the engine's notes and the mod's blocks left out, a slash command kept as its name alone.
+const receivedText = (m: SessionMessage) => {
+  let text = m.text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+  const own = OWN_BLOCKS.exec(text)
+  if (own) text = text.slice(0, own.index).trim()
+  const command = /^<command-name>\s*(\S+?)\s*<\/command-name>/.exec(text)
+  return command ? `(ran ${command[1]})` : text
+}
+
+const describeUse = (use: SessionMessage['toolUses'][number]) => {
+  const input = use.input
+  const what = [input.command, input.file_path, input.notebook_path, input.pattern, input.description, input.url].find(v => typeof v === 'string')
+  return `${use.isError ? '✗' : '✓'} [${use.tool}]${typeof what === 'string' ? ` ${clip(what.replace(/\s+/g, ' '), 300)}` : ''}`
+}
+
+// A mechanical record of the turn that wrote the handoff, from the message that started it to the reply that ended
+// it, so the agent knows exactly where it stopped after a /clear. The handoff's own reads and writes are left out.
+const buildLastTurn = (messages: readonly SessionMessage[], dir: string, at: string) => {
+  let start = -1
+  messages.forEach((m, i) => {
+    if (m.role === 'user' && !m.toolResults?.length && receivedText(m)) start = i
+  })
+  if (start < 0) return null
+  const first = messages[start]!
+  const steps: string[] = []
+  const delivered: string[] = []
+  let reply = ''
+  for (const m of messages.slice(start + 1)) {
+    if (m.role === 'user') {
+      const text = receivedText(m)
+      if (text) delivered.push(`### ${sourceOf(m, text)}\n\n${clip(text, 6000)}\n`)
+      continue
+    }
+    if (m.text.trim()) reply = m.text.trim()
+    for (const use of m.toolUses) {
+      const path = use.input.file_path
+      if (typeof path === 'string' && path.replace(/\\/g, '/').startsWith(`${dir}/`)) continue
+      steps.push(describeUse(use))
+    }
+  }
+  const firstText = receivedText(first)
+  return [
+    '# Last turn before the clear',
+    '',
+    `Recorded from the transcript when the turn ended (${at}).`,
+    '',
+    `## The message the turn handled (${sourceOf(first, firstText)})`,
+    '',
+    clip(firstText, 20_000),
+    '',
+    `## What was done (${steps.length} tool calls)`,
+    '',
+    ...(steps.length ? [...(steps.length > 150 ? [`(${steps.length - 150} earlier calls left out)`] : []), ...steps.slice(-150).map(s => `- ${s}`)] : ['(none)']),
+    '',
+    ...(delivered.length ? ['## Messages delivered during the turn', '', ...delivered, ''] : []),
+    '## The final reply',
+    '',
+    clip(reply || '(none)', 20_000),
+    '',
+  ].join('\n')
 }
 
 // A mechanical record of the conversation, so the handoff can be checked against what actually happened.
 const buildInventory = (messages: readonly SessionMessage[], header: string[]) => {
-  const prompts: string[] = []
+  const received: { source: string; text: string }[] = []
   const files = new Map<string, Map<string, number>>()
   const tools = new Map<string, number>()
   const commands: string[] = []
@@ -77,11 +170,8 @@ const buildInventory = (messages: readonly SessionMessage[], header: string[]) =
 
   for (const m of messages) {
     if (m.role === 'user') {
-      // The engine's own notes ride in the user's rows; a slash command is kept as its name alone.
-      const text = m.text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
-      const command = /^<command-name>\s*(\S+?)\s*<\/command-name>/.exec(text)
-      if (command) prompts.push(`(ran ${command[1]})`)
-      else if (text) prompts.push(text)
+      const text = receivedText(m)
+      if (text) received.push({ source: text.startsWith('(ran ') ? 'user' : sourceOf(m, text), text })
       continue
     }
     for (const use of m.toolUses) {
@@ -106,14 +196,28 @@ const buildInventory = (messages: readonly SessionMessage[], header: string[]) =
   const list = (items: string[], last: number) =>
     items.length === 0 ? ['(none)'] : [...(items.length > last ? [`(${items.length - last} earlier entries left out)`] : []), ...items.slice(-last).map(i => `- ${i}`)]
 
+  // The newest messages matter most; the earlier ones past the budget are counted, not kept.
+  const blocks: string[] = []
+  let chars = 0
+  for (const [i, { source, text }] of [...received.entries()].reverse()) {
+    const block = `### ${i + 1} · ${source}\n\n${clip(text, 6000)}\n`
+    if (blocks.length > 0 && chars + block.length > MAX_MESSAGES_CHARS) break
+    blocks.unshift(block)
+    chars += block.length
+  }
+  const leftOut = received.length - blocks.length
+
   return [
     '# Conversation inventory',
     '',
     ...header,
     '',
-    `## The user's messages, verbatim (${prompts.length})`,
+    `## Messages received, verbatim (${received.length})`,
     '',
-    ...(prompts.length ? prompts.map((p, i) => `### ${i + 1}\n\n${clip(p, 6000)}\n`) : ['(none)']),
+    'Each is headed by where it came from: the user, another session, a subagent report, a task notification, a compaction summary.',
+    '',
+    ...(leftOut > 0 ? [`(${leftOut} earlier messages left out)`, ''] : []),
+    ...(blocks.length ? blocks : ['(none)']),
     '',
     `## Files touched (${files.size})`,
     '',
@@ -142,58 +246,77 @@ const buildInventory = (messages: readonly SessionMessage[], header: string[]) =
   ].join('\n')
 }
 
-const handoffPrompt = (paths: Paths, previous: Paths | null, tokens: number, threshold: number) =>
-  [
-    `[context-handoff] The context window is at ${kTokens(tokens)} tokens (threshold ${kTokens(threshold)}). The session will be compacted right after this turn, and the handoff you write now is how you will keep the context. Completeness matters more than brevity or tokens.`,
+const handoffPrompt = (paths: Paths, previous: string | null, tokens: number, threshold: number, maxWords: number, after: AfterHandoff) => {
+  const steps = [
+    'Go through the WHOLE conversation from its first message, not just the recent turns, including any compaction summary and earlier handoff in it.',
+    `Read the inventory at \`${paths.inventory}\` with the Read tool, ALL of it: one Read returns about 2000 lines, so if it goes on, keep reading with \`offset\` and \`limit\` until its end. It lists the messages received verbatim, every file touched, every command, search, subagent and tool error. Use it as a checklist so nothing that still matters is left out.`,
+    ...(previous
+      ? [`Read the previous handoff at \`${previous}\` and consolidate it into the new one: merge what still matters into the sections below and drop what is done or obsolete. Do not append it as it stands; the handoff must not grow with every cycle.`]
+      : []),
+    'If the working directory is a git repository, run `git status` and `git diff --stat` and record the uncommitted state and the branch.',
+    [
+      `Write the handoff at \`${paths.handoff}\` with the Write tool, with these sections:`,
+      '   - Goal and current state: what is wanted overall and exactly where the work stands.',
+      "   - The user's instructions and preferences: quote them verbatim where the wording matters.",
+      '   - Decisions and their reasons, and approaches tried or rejected and why.',
+      '   - Files: for each relevant file, its path, its role, what changed and why, and its state (done, partial, untested). Name files by path; never copy their content.',
+      '   - Tools, commands and environment: build/test/run commands that work, MCP servers and tools used, skills invoked, subagents and other sessions and what they returned, environment quirks. Name where credentials live, never their values.',
+      '   - Work log: done, in progress, and the next steps in order, each concrete enough to act on.',
+      '   - Open questions, risks, known bugs, failing tests, and error messages verbatim.',
+      '   - Files to re-read after compaction: the few most important ones, each with why.',
+      '   - Anything else needed to continue seamlessly.',
+      '   - Last turn and next step, as the final section: the message this turn handles (who sent it and what it asks), what you did for it and how it ended, and the exact next step you will take, concrete enough to start on without asking.',
+    ].join('\n'),
+  ]
+  return [
+    `[context-handoff] The context window is at ${kTokens(tokens)} tokens (threshold ${kTokens(threshold)}). The session will be ${after === 'clear' ? 'cleared' : 'compacted'} right after this turn, and the handoff you write now is how you will keep the context.`,
+    `Be complete on decisions, state and next steps; refer to files by path instead of copying their content${maxWords > 0 ? `; keep the handoff under ${maxWords} words` : ''}.`,
     '',
-    "Before handling the user's message above, do this, in order:",
-    '1. Go through the WHOLE conversation from its first message, not just the recent turns, including any compaction summary and earlier handoff in it.',
-    `2. Read the inventory at \`${paths.inventory}\` with the Read tool: the user's messages verbatim, every file touched, every command, search, subagent and tool error. Use it as a checklist so nothing that still matters is left out.`,
-    ...(previous ? [`3. Read the previous handoff at \`${previous.handoff}\` and carry over everything in it that is still relevant.`] : []),
-    `${previous ? 4 : 3}. If the working directory is a git repository, run \`git status\` and \`git diff --stat\` and record the uncommitted state and the branch.`,
-    `${previous ? 5 : 4}. Write the handoff at \`${paths.handoff}\` with the Write tool, with these sections:`,
-    '   - Goal and current state: what the user wants overall and exactly where the work stands.',
-    "   - The user's instructions and preferences: quote them verbatim where the wording matters.",
-    '   - Decisions and their reasons, and approaches tried or rejected and why.',
-    '   - Files: for each relevant file, its path, its role, what changed and why, and its state (done, partial, untested).',
-    '   - Tools, commands and environment: build/test/run commands that work, MCP servers and tools used, skills invoked, subagents and what they returned, environment quirks. Name where credentials live, never their values.',
-    '   - Work log: done, in progress, and the next steps in order, each concrete enough to act on.',
-    '   - Open questions, risks, known bugs, failing tests, and error messages verbatim.',
-    '   - Files to re-read after compaction: the few most important ones, each with why.',
-    '   - Anything else needed to continue seamlessly.',
+    'Before handling the message above, whether it came from the user, another session or a background task, do this, in order:',
+    ...steps.map((step, i) => `${i + 1}. ${step}`),
     '',
     'Write it in the language of this conversation.',
+    ...(after === 'clear'
+      ? ['', 'After the clear nothing of this conversation remains but this handoff and a mechanical record of this turn: the last section is what you will resume from, so it must say exactly where you stopped and what comes next.']
+      : []),
     '',
-    "Only then handle the user's message above as usual. Before ending this turn, add to the handoff's work log what you did for that message. The session is compacted right after this turn.",
+    `Only then handle the message above as usual. Before ending this turn, update the handoff's work log and its "Last turn and next step" section with what you did for that message, how it ended, and the exact next step. The session is ${after === 'clear' ? 'cleared' : 'compacted'} right after this turn.`,
   ].join('\n')
+}
 
+// The handoff is the source of truth; a long summary beside it would only be context paid for twice.
 const compactInstructions = (paths: Paths) =>
-  `A detailed handoff (${paths.handoff}) and a conversation inventory (${paths.inventory}) were written and will be handed back after compaction. Name both files in the summary and stress the current task, its next step, and the user's latest instructions.`
+  `A handoff was written at ${paths.handoff} and is handed back in full after compaction: it is the source of truth. Keep this summary minimal: name that file and the immediate next step, nothing else.`
 
-const restoreBlocks = (paths: Paths, handoff: string, inventory: string | null) => [
+// After a /clear the handoff is all that is left, so the record of the turn that wrote it goes back with it.
+const restoreBlocks = (paths: Paths, handoff: string, how: 'compacted' | 'cleared', lastTurn: string | null) => [
   [
-    'This session was just compacted by the context-handoff mod. Before compaction you wrote the handoff below to keep the important context.',
-    `Before answering the message above, re-read the files the handoff lists under "Files to re-read after compaction"; the full handoff is at ${paths.handoff} and the inventory at ${paths.inventory}.`,
+    `This session was just ${how} by the context-handoff mod. Before that you wrote the handoff below to keep the important context.`,
+    ...(how === 'cleared'
+      ? [`Nothing else of the conversation is left. Resume from the next step under the handoff's "Last turn and next step", checked against the record of that turn ${lastTurn ? 'that follows the handoff' : `at ${paths.lastTurn}, if it was written`}.`]
+      : []),
+    `Before answering the message above, re-read the files the handoff lists under "Files to re-read after compaction". The handoff is at ${paths.handoff}; the inventory it was checked against is at ${paths.inventory}, to read only if the handoff leaves something out.`,
     '',
     clip(handoff, MAX_BLOCK_CHARS),
   ].join('\n'),
-  ...(inventory ? [`The conversation inventory written before compaction (${paths.inventory}):\n\n${clip(inventory, MAX_BLOCK_CHARS)}`] : []),
+  ...(how === 'cleared' && lastTurn ? [`The last turn before the clear (${paths.lastTurn}):\n\n${clip(lastTurn, MAX_BLOCK_CHARS)}`] : []),
 ]
 
 // A turn of the mod's own does not start in every host (the desktop app runs none), so the handoff rides on the
-// person's next message: armed at the threshold, asked for in that message's turn, compacted after it.
+// next message that may carry it: armed at the threshold, asked for in that message's turn, compacted after it.
 const arm = async ($: EngineInterface, why: string) => {
   await update($, phase, () => 'armed')
-  $.ui.toast(`${why}: the handoff is written with your next message, then the session compacts`)
+  $.ui.toast(`${why}: the handoff is written with the next message, then the session compacts`)
 }
 
-// Writes the inventory and returns the instructions to attach to the person's prompt.
-const prepareHandoff = async ($: EngineInterface, tokens: number, threshold: number) => {
+// Writes the inventory and returns the instructions to attach to the prompt.
+const prepareHandoff = async ($: EngineInterface, tokens: number, threshold: number, maxWords: number, after: AfterHandoff) => {
   await update($, phase, () => 'writing')
   const n = await update($, cycle, c => c + 1)
   const paths = await pathsOf($, n)
-  const previous = n > 1 ? await pathsOf($, n - 1) : null
-  const hasPrevious = previous !== null && (await $.fs.exists(previous.handoff))
+  // The last handoff confirmed written, not the cycle before: a failed cycle wrote none.
+  const last = await read($, lastWritten)
+  const previous = last !== null && last !== paths.handoff && (await $.fs.exists(last)) ? last : null
 
   const header = [
     `- Session: ${await $.session.id()}`,
@@ -201,13 +324,13 @@ const prepareHandoff = async ($: EngineInterface, tokens: number, threshold: num
     `- Model: ${await $.session.model()}`,
     `- Context: ${kTokens(tokens)} tokens`,
     `- Written: ${new Date(await $.clock.now()).toISOString()}`,
-    ...(hasPrevious && previous ? [`- Previous handoff: ${previous.handoff}`, `- Previous inventory: ${previous.inventory}`] : []),
+    ...(previous ? [`- Previous handoff: ${previous}`, `- Previous inventory: ${pathsFromHandoff(previous).inventory}`] : []),
   ]
   await $.fs.write(paths.inventory, buildInventory(await $.session.messages(), header))
 
   const at = await $.clock.now()
   await update($, requestedAt, () => at)
-  return handoffPrompt(paths, hasPrevious ? previous : null, tokens, threshold)
+  return handoffPrompt(paths, previous, tokens, threshold, maxWords, after)
 }
 
 const giveUp = async ($: EngineInterface, why: string) => {
@@ -220,7 +343,14 @@ const giveUp = async ($: EngineInterface, why: string) => {
 const askForCompact = async ($: EngineInterface, why: string) => {
   await update($, phase, () => 'idle')
   $.ui.log(`context-handoff: automatic compaction failed: ${why}`, { to: 'debug' })
-  $.ui.toast(`context-handoff: the handoff is written but the session could not compact by itself (${why}). Run /compact; the handoff comes back with your next message.`)
+  $.ui.toast(`context-handoff: the handoff is written but the session could not compact by itself (${why}). Run /compact; the handoff comes back with the next message.`)
+}
+
+const handBack = async ($: EngineInterface, handoff: string, what: string) => {
+  await update($, written, () => null)
+  await update($, pendingPath, () => handoff)
+  await update($, phase, () => 'idle')
+  $.ui.toast(`Session ${what}: the handoff goes with the next message`)
 }
 
 // The mod's own session.compact hook does not run for a /compact it raised (the re-entry rule), so it hands the
@@ -229,10 +359,7 @@ const compactByCommand = async ($: EngineInterface, n: number, paths: Paths) => 
   try {
     await $.command.run({ command: 'compact', args: compactInstructions(paths) })
     if ((await read($, written)) !== n) return
-    await update($, written, () => null)
-    await update($, pending, () => n)
-    await update($, phase, () => 'idle')
-    $.ui.toast('Session compacted: the handoff goes with your next message')
+    await handBack($, paths.handoff, 'compacted')
   } catch (error) {
     await askForCompact($, error instanceof Error ? error.message : String(error))
   }
@@ -244,10 +371,7 @@ const compactWhenIdle = ($: EngineInterface, n: number, paths: Paths, attempt: n
     void $.session.compact({ instructions: compactInstructions(paths) }).then(
       async result => {
         if (result.skip !== undefined) return askForCompact($, `skipped: ${result.skip}`)
-        await update($, written, () => null)
-        await update($, pending, () => n)
-        await update($, phase, () => 'idle')
-        $.ui.toast('Session compacted: the handoff goes with your next message')
+        await handBack($, paths.handoff, 'compacted')
       },
       (error: unknown) => {
         const why = error instanceof Error ? error.message : String(error)
@@ -260,26 +384,62 @@ const compactWhenIdle = ($: EngineInterface, n: number, paths: Paths, attempt: n
   })
 }
 
+// A /clear drops the conversation outright, so nothing is summarized beside the handoff. The process goes on under
+// a new session id and may start the state over, so what the next message needs is written after it. Where the
+// host refuses the command, the session compacts instead.
+const clearWhenIdle = ($: EngineInterface, n: number, paths: Paths) => {
+  $.clock.after(1000, () => {
+    void $.command.run({ command: 'clear' }).then(
+      async () => {
+        await update($, lastWritten, () => paths.handoff)
+        await update($, isHeld, () => false)
+        await handBack($, paths.handoff, 'cleared')
+      },
+      (error: unknown) => {
+        $.ui.log(`context-handoff: /clear rejected, compacting instead: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+        compactWhenIdle($, n, paths, 1)
+      },
+    )
+  })
+}
+
 export const register: Register = (on, options) => {
   const threshold = Math.max(50, Number(options.thresholdK) || 300) * 1000
   const retentionDays = Math.max(0, Number(options.retentionDays ?? 2))
+  const maxWords = Math.max(0, Number(options.handoffMaxWords ?? 0) || 0)
+  const after: AfterHandoff = options.afterHandoff === 'clear' ? 'clear' : 'compact'
+  const carry = new Set(listOption(options.carryOrigins).filter(kind => !NEVER_CARRY.has(kind)))
 
   on('session.start', async ($, e, next) => {
     void pruneOld($, retentionDays).catch(() => undefined)
     await $.command.register({
       name: 'context-handoff',
-      description: 'Arm a handoff: written with your next message, then the session compacts and gets it back',
+      description: 'Arm a handoff: written with the next message, then the session compacts and gets it back',
+      argumentHint: '[status]',
     })
     return next(e)
   })
 
-  on('command.run', { command: 'context-handoff' }, async $ => {
+  on('command.run', { command: 'context-handoff' }, async ($, e) => {
+    if (e.args.trim() === 'status') {
+      const { context } = await $.session.usage()
+      return {
+        text: [
+          `Phase: ${await read($, phase)}${(await read($, isHeld)) ? ' (held after a failed cycle)' : ''}`,
+          `Context: ${kTokens(context.tokens ?? 0)} of a ${kTokens(threshold)} threshold`,
+          `Carries on: ${carry.size ? [...carry].join(', ') : 'messages a person typed only'}`,
+          `After the handoff: ${after}`,
+          `Last handoff: ${(await read($, lastWritten)) ?? '(none)'}`,
+          `Waiting to go back: ${(await read($, pendingPath)) ?? '(none)'}`,
+        ].join('\n'),
+      }
+    }
     const now = await read($, phase)
-    if (now === 'armed') return { text: 'Already armed: the handoff is written with your next message.' }
+    if (now === 'armed') return { text: 'Already armed: the handoff is written with the next message.' }
     if (now !== 'idle') return { text: 'A handoff is already under way.' }
     await update($, isHeld, () => false)
     await arm($, 'Handoff armed')
-    return { text: 'Handoff armed: send your next message; the agent writes the handoff first, then the session compacts.' }
+    return { text: 'Handoff armed: with the next message the agent writes the handoff first, then the session compacts.' }
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -300,9 +460,13 @@ export const register: Register = (on, options) => {
         await giveUp($, `no handoff was written at ${paths.handoff}`)
         return result
       }
+      const record = buildLastTurn(await $.session.messages(), await sessionDir($), new Date(await $.clock.now()).toISOString())
+      if (record) await $.fs.write(paths.lastTurn, record).catch(() => undefined)
+      await update($, lastWritten, () => paths.handoff)
       await update($, written, () => n)
       await update($, phase, () => 'compacting')
-      compactWhenIdle($, n, paths, 1)
+      if (after === 'clear') clearWhenIdle($, n, paths)
+      else compactWhenIdle($, n, paths, 1)
       return result
     }
 
@@ -320,8 +484,9 @@ export const register: Register = (on, options) => {
       await update($, isHeld, () => false)
       const n = await read($, written)
       if (n !== null) {
+        const { handoff } = await pathsOf($, n)
         await update($, written, () => null)
-        await update($, pending, () => n)
+        await update($, pendingPath, () => handoff)
         await update($, phase, () => 'idle')
       }
     }
@@ -329,22 +494,29 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    const isPerson = !e.command && !e.isMeta && e.turnId === undefined && !NOT_PERSON.has(e.origin.kind)
-    if (!isPerson) return next(e)
+    const kind = e.origin.kind
+    $.ui.log(`context-handoff: prompt.submit origin=${kind} isMeta=${e.isMeta === true} turnId=${e.turnId ?? '-'} command=${e.command?.name ?? '-'}`, {
+      to: 'debug',
+    })
+    const isPerson = !e.command && !e.isMeta && e.turnId === undefined && !NOT_PERSON.has(kind)
+    // The engine queues another session's message and a task's notification isMeta, so a carried origin may be.
+    const isCarried = !e.command && e.turnId === undefined && carry.has(kind)
+    if (!isPerson && !isCarried) return next(e)
 
     if ((await read($, phase)) === 'armed') {
       const { context } = await $.session.usage()
-      const ask = await prepareHandoff($, context.tokens ?? 0, threshold)
+      const ask = await prepareHandoff($, context.tokens ?? 0, threshold, maxWords, after)
       return next({ ...e, context: [...(e.context ?? []), ask] })
     }
 
-    const n = await read($, pending)
-    if (n === null) return next(e)
-    await update($, pending, () => null)
-    const paths = await pathsOf($, n)
-    const handoff = await $.fs.read(paths.handoff).catch(() => null)
+    const handoffPath = await read($, pendingPath)
+    if (handoffPath === null) return next(e)
+    await update($, pendingPath, () => null)
+    const handoff = await $.fs.read(handoffPath).catch(() => null)
     if (!handoff) return next(e)
-    const inventory = await $.fs.read(paths.inventory).catch(() => null)
-    return next({ ...e, context: [...(e.context ?? []), ...restoreBlocks(paths, handoff, inventory)] })
+    const paths = pathsFromHandoff(handoffPath)
+    const how = handoffPath.startsWith(`${await sessionDir($)}/`) ? 'compacted' : 'cleared'
+    const lastTurn = how === 'cleared' ? await $.fs.read(paths.lastTurn).catch(() => null) : null
+    return next({ ...e, context: [...(e.context ?? []), ...restoreBlocks(paths, handoff, how, lastTurn)] })
   })
 }

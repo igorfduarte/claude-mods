@@ -1,7 +1,7 @@
 {
   "name": "context-handoff",
-  "version": "0.4.3",
-  "description": "Watches the context window; past a threshold the agent writes a handoff with your next message, then the session compacts and gets it back.",
+  "version": "0.5.0",
+  "description": "Watches the context window; past a threshold the agent writes a handoff with the next message, then the session compacts and gets it back.",
   "author": {
     "name": "igorfduarte",
     "url": "https://github.com/igorfduarte"
@@ -16,6 +16,28 @@
       "title": "Threshold (thousand tokens)",
       "description": "Context size, in thousands of tokens, at which the handoff and compaction start. Keep it below the auto-compact window.",
       "default": 300
+    },
+    "carryOrigins": {
+      "type": "string",
+      "title": "Also carry on (origins)",
+      "description": "Comma-separated prompt origins, besides messages a person typed, that may carry the handoff request and the restore: peer (subagent hand-backs, other sessions), peer-send-message, task-notification (background tasks, side sessions), scheduled-trigger, coordinator, projects-relay, channel, slack-ping. Empty: typed messages only.",
+      "default": ""
+    },
+    "handoffMaxWords": {
+      "type": "number",
+      "title": "Handoff size cap (words)",
+      "description": "The handoff is asked to stay under this many words; 0 sets no cap.",
+      "default": 0
+    },
+    "afterHandoff": {
+      "type": "string",
+      "title": "After the handoff",
+      "description": "What follows a written handoff. compact: the session compacts with a minimal summary. clear: the session runs /clear and gets back only the handoff and a record of its last turn (it compacts where the host refuses /clear).",
+      "options": [
+        "compact",
+        "clear"
+      ],
+      "default": "compact"
     },
     "retentionDays": {
       "type": "number",

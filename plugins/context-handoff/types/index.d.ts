@@ -9,10 +9,12 @@ declare module 'claude-code' {
       cycle: number
       /** When the current handoff was asked for, in ms; the file must be newer than this. */
       requestedAt: number
-      /** The cycle whose files go with the next prompt, once the session compacted. */
-      pending: number | null
+      /** The handoff that goes with the next prompt, once the session compacted or cleared. */
+      pendingPath: string | null
       /** The cycle whose handoff is written and waits for a compaction, the mod's own or a /compact. */
       written: number | null
+      /** The last handoff confirmed written; the next cycle consolidates it. A failed cycle leaves it as it was. */
+      lastWritten: string | null
       /** True after a failed or interrupted cycle: no automatic retry until a compaction. */
       isHeld: boolean
     }
