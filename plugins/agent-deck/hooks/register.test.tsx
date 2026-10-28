@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { roleOf } from './sprite'
 
 const PLUGIN = 'agent-deck'
 const STEP = 'mcp__agent-deck__step'
@@ -99,6 +100,9 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(sources).toContain('1/4')
       expect(sources).not.toContain('undefined')
       expect(sources).not.toContain('NaN')
+      // Dressed for the task: the reviewer's deerstalker, the Explore run's pith helmet.
+      expect(sources).toContain('#B07D4F')
+      expect(sources).toContain('#D9C48F')
     } else {
       expect(await ui.find({ type: 'Text', text: /Review the parser/ })).toBeDefined()
       expect(await ui.find({ type: 'Text', text: /reading the code/ })).toBeDefined()
@@ -165,3 +169,17 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await after.unmount()
   })
 }
+
+test('a run is dressed by its type, then by its task', () => {
+  expect(roleOf('Explore', 'Review the parser')).toBe('explorer')
+  expect(roleOf('Plan', 'anything')).toBe('architect')
+  expect(roleOf('general-purpose', 'Review the parser')).toBe('inspector')
+  expect(roleOf('general-purpose', 'Revisar o PR')).toBe('inspector')
+  expect(roleOf('general-purpose', 'Implement the cache')).toBe('builder')
+  expect(roleOf('general-purpose', 'Corrigir o bug do login')).toBe('builder')
+  expect(roleOf('general-purpose', 'Run the test suite')).toBe('tester')
+  expect(roleOf('claude-code-guide', 'How do hooks work')).toBe('scholar')
+  expect(roleOf('plugin:code-reviewer', 'x')).toBe('inspector')
+  expect(roleOf('general-purpose', 'Haiku sleep test 1')).toBe('tester')
+  expect(roleOf('general-purpose', 'Quick haiku run')).toBe('none')
+})

@@ -112,10 +112,25 @@ Above the prompt, for the current batch (the subagents started while others stil
 `/subagents` opens or closes it, and `/subagents open` only opens it. It also opens by itself when a new batch starts.
 
 - A header with the subagents running out of the total, output tokens and time.
-- One row per subagent: a pixel robot that walks while it works, smiles when done and turns red-eyed on an error; the task's description; its type, model and effort, and whether it runs in the background; what it does now, read off its latest tool calls (`Grep · invalidateCache`); its reported steps (`2/5 · reading the tests`); context size, output tokens and time.
+- One row per subagent: a pixel robot that walks while it works, smiles when done and turns red-eyed on an error, dressed for its task (see below); the task's description; its type, model and effort, and whether it runs in the background; what it does now, read off its latest tool calls (`Grep · invalidateCache`); its reported steps (`2/5 · reading the tests`); context size, output tokens and time.
 - Finished subagents collapse under their own heading and can be cleared.
 
 In a terminal session both draw as text.
+
+### Outfits
+
+Each robot in the panel wears something for the job it was given, read off its agent type first and then its description (English or Portuguese):
+
+| Role | Wears | Picked by |
+| --- | --- | --- |
+| Reviewer | Sherlock's deerstalker and round glasses | review, audit, verify, check, revisar |
+| Tester | Lab goggles | test, benchmark, reproduce |
+| Planner | A beret and a pencil | the `Plan` type; plan, design, planejar |
+| Explorer | A pith helmet | the `Explore` type; search, find, map, buscar |
+| Researcher | A mortarboard | `claude-code-guide`; research, docs, investigate, pesquisar |
+| Builder | A hard hat | implement, fix, build, write, refactor, corrigir |
+
+A subagent that matches none keeps its antenna. The band's robot stands for the whole batch and wears nothing.
 
 ### Step reports
 

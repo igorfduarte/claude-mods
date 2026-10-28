@@ -1,6 +1,6 @@
 {
   "name": "agent-deck",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "A live side panel of the session's subagents (model, current activity, context, time) and a progress bar above the prompt. /subagents opens or closes the panel.",
   "author": {
     "name": "igorfduarte",

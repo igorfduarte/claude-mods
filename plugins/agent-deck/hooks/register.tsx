@@ -5,6 +5,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Deck, Run, RunStatus } from '../types'
+import { bot, roleOf } from './sprite'
 
 const runs = atom({ plugin: 'agent-deck', key: 'runs' } as const, [])
 const deck = atom({ plugin: 'agent-deck', key: 'deck' } as const, {
@@ -124,14 +125,6 @@ const GOOD = '#3B9C5F'
 const ACCENT = '#7C6CF2'
 const fillOf = (r: Run): string => (r.status === 'failed' ? FAILED : r.status === 'stopped' ? STOPPED : runColor(r))
 
-// Shifts a #rrggbb color toward black (amount < 0) or white (amount > 0).
-const shade = (hex: string, amount: number): string => {
-  const n = parseInt(hex.slice(1), 16)
-  const mix = (c: number) => Math.round(amount < 0 ? c * (1 + amount) : c + (255 - c) * amount)
-  const [r, g, b] = [mix((n >> 16) & 255), mix((n >> 8) & 255), mix(n & 255)]
-  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`
-}
-
 // ---------------------------------------------------------------------------
 // What a run is doing, read off the tool calls of its last request
 
@@ -225,50 +218,6 @@ const CSS = `<style>
 const svg = (W: number, H: number, body: string, extraCss = ''): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${CSS}${extraCss}${body}</svg>`
 
-// A 16×16 pixel robot in the run's color. Running, it bobs, steps,
-// looks around and blinks; finished, it smiles; failed, its eyes go red.
-const bot = (x: number, y: number, color: string, status: RunStatus, scale = 2): string => {
-  const groups: Record<'bd' | 'la' | 'lb', string[]> = { bd: [], la: [], lb: [] }
-  const px = (gx: number, gy: number, w: number, h: number, fill: string, cls = '', group: keyof typeof groups = 'bd') =>
-    groups[group].push(`<rect${cls ? ` class="${cls}"` : ''} x="${gx}" y="${gy}" width="${w}" height="${h}" fill="${fill}"/>`)
-  const body = shade(color, -0.3)
-  const metal = '#8E929A'
-  const eye = status === 'failed' ? '#FF6B6B' : status === 'stopped' ? '#8E929A' : '#9FF3FF'
-  const isRun = status === 'running'
-
-  px(7, 0, 2, 1, isRun ? '#FFD84D' : metal, 'ant')
-  px(7, 1, 2, 1, metal)
-  px(3, 2, 10, 1, color)
-  px(2, 3, 12, 6, color)
-  px(3, 9, 10, 1, color)
-  px(1, 5, 1, 2, metal)
-  px(14, 5, 1, 2, metal)
-  px(3, 3, 10, 5, '#22252B')
-  if (status === 'done') {
-    // Happy eyes: ^ ^
-    px(5, 4, 2, 1, eye)
-    px(9, 4, 2, 1, eye)
-    px(4, 5, 1, 1, eye)
-    px(7, 5, 1, 1, eye)
-    px(8, 5, 1, 1, eye)
-    px(11, 5, 1, 1, eye)
-  } else {
-    px(5, 4, 2, 2, eye, 'eye')
-    px(9, 4, 2, 2, eye, 'eye')
-  }
-  px(6, 7, 4, 1, status === 'failed' ? '#FF6B6B' : shade(color, 0.45))
-  px(6, 10, 4, 1, body)
-  px(4, 11, 8, 3, body)
-  px(7, 12, 2, 1, isRun ? '#FFD84D' : metal, 'core')
-  px(2, 11, 2, 2, color)
-  px(12, 11, 2, 2, color)
-  px(5, 14, 2, 2, '#4A4D55', '', 'la')
-  px(9, 14, 2, 2, '#4A4D55', '', 'lb')
-
-  const g = (k: keyof typeof groups) => `<g class="${k}">${groups[k].join('')}</g>`
-  return `<g transform="translate(${x},${y}) scale(${scale})" shape-rendering="crispEdges"><g class="${isRun ? 'run' : ''}">${g('bd')}${g('la')}${g('lb')}</g></g>`
-}
-
 const statusMark = (x: number, y: number, r: Run): string => {
   if (r.status === 'running') return `<circle class="pulse" cx="${x}" cy="${y}" r="3.5" fill="${runColor(r)}"/>`
   if (r.status === 'done')
@@ -326,7 +275,7 @@ const rowSvg = (W: number, r: Run, at: number, s: Strings): string => {
   return svg(
     W,
     ROW_H,
-    `${bot(2, 10, color, r.status)}
+    `${bot(2, 10, color, r.status, 2, roleOf(r.type, r.description))}
 <text class="t" x="${X}" y="18" font-family="${FONT}" font-size="13" font-weight="600">${xml(fit(r.description || bareType(r.type), 13, textW))}</text>
 <text x="${X}" y="34" font-family="${FONT}" font-size="11"><tspan fill="${color}" font-weight="600">${xml(bareType(r.type))}</tspan><tspan class="s">  ·  ${xml(fit(meta, 11, Math.max(20, textW - widthOf(bareType(r.type), 11) - 20)))}</tspan></text>
 ${steps ? `<text x="${X}" y="50" font-family="${FONT}" font-size="11" font-weight="600" font-variant-numeric="tabular-nums" fill="${color}">${steps}</text>` : ''}
