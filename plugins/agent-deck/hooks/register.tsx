@@ -340,7 +340,9 @@ ${statusMark(W - 9, 14, r)}
 }
 
 // The band's row: robot, title, count, and a bar with one segment per run of the batch.
-const BAND_H = 24
+const BAND_H = 18
+// Pixels left on the band's row for another mod drawn beside it.
+const SIDE_ROOM = 200
 
 const bandSvg = (W: number, batch: readonly Run[], at: number, s: Strings): string => {
   const working = batch.some(isRunning)
@@ -349,15 +351,15 @@ const bandSvg = (W: number, batch: readonly Run[], at: number, s: Strings): stri
   const percent = `${Math.round(ratioOf(batch) * 100)}%`
   const time = fmtTime(spanOf(batch, at))
   const tail = `${percent} · ${time}`
-  const tailW = widthOf(tail, 12) + 8
-  const titleX = 24
-  const labelX = titleX + widthOf(title, 13) + 10
-  let barX = labelX + widthOf(label, 12) + 12
-  const showLabel = W - barX - tailW >= 80
+  const tailW = widthOf(tail, 11) + 8
+  const titleX = 22
+  const labelX = titleX + widthOf(title, 12) + 8
+  let barX = labelX + widthOf(label, 11) + 10
+  const showLabel = W - barX - tailW >= 40
   if (!showLabel) barX = labelX
   const barW = Math.max(40, W - barX - tailW)
-  const barY = 7
-  const barH = 10
+  const barY = 5
+  const barH = 8
 
   const parts: string[] = []
   const n = batch.length
@@ -386,11 +388,11 @@ const bandSvg = (W: number, batch: readonly Run[], at: number, s: Strings): stri
   return svg(
     W,
     BAND_H,
-    `${bot(0, 4, working ? ACCENT : GOOD, working ? 'running' : 'done', 1)}
-<text class="t" x="${titleX}" y="16.5" font-family="${FONT}" font-size="13" font-weight="600">${xml(title)}</text>
-${showLabel ? `<text class="s" x="${labelX}" y="16.5" font-family="${FONT}" font-size="12" font-variant-numeric="tabular-nums">${xml(label)}</text>` : ''}
+    `${bot(0, 1, working ? ACCENT : GOOD, working ? 'running' : 'done', 1)}
+<text class="t" x="${titleX}" y="13" font-family="${FONT}" font-size="12" font-weight="600">${xml(title)}</text>
+${showLabel ? `<text class="s" x="${labelX}" y="13" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(label)}</text>` : ''}
 ${parts.join('')}
-<text class="s" x="${W - 2}" y="16.5" text-anchor="end" font-family="${FONT}" font-size="12" font-variant-numeric="tabular-nums">${xml(tail)}</text>`,
+<text class="s" x="${W - 2}" y="13" text-anchor="end" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${xml(tail)}</text>`,
   )
 }
 
@@ -840,7 +842,8 @@ export const register: Register = (on, options) => {
       const { Svg } = ui
       // Pixels per column vary with the app's font: the drawing errs narrow so
       // the buttons keep their room, and wrap below it rather than leave the row.
-      const W = Math.max(200, Math.min(1200, (e.props.bodyColumns || 100) * 7 - 140))
+      // It also leaves SIDE_ROOM for another mod's item on the same row (cache-clock's pill).
+      const W = Math.max(160, Math.min(720, (e.props.bodyColumns || 100) * 7 - 140 - SIDE_ROOM))
       return (
         <Box flexDirection="column">
           <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
