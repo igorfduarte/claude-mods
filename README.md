@@ -6,6 +6,7 @@ Mods for [Claude Code](https://claude.com/claude-code). Each one is a standalone
 | --- | --- |
 | [context-handoff](#context-handoff) | Watches the context window. Past a threshold, the agent writes a thorough handoff, the session compacts, and the handoff comes back with your next message, so long sessions keep their context. |
 | [agent-deck](#agent-deck) | A live side panel of every subagent in the session (what it is doing, its steps, context and time) and a progress bar above the prompt for the subagents running now. |
+| [cache-clock](#cache-clock) | A pill above the prompt that says whether the prompt cache is warm or cold, counts down to cold, and pings to keep it warm. |
 
 ## Install
 
@@ -14,6 +15,7 @@ At the prompt of a Claude Code terminal session, with the mod's name from the ta
 ```
 /plugin install context-handoff --marketplace igorfduarte/claude-mods
 /plugin install agent-deck --marketplace igorfduarte/claude-mods
+/plugin install cache-clock --marketplace igorfduarte/claude-mods
 ```
 
 Answer `y` to add the marketplace, pick a scope (user is the default), and set the options or keep the defaults.
@@ -142,6 +144,44 @@ Set them when installing, with `/plugin configure agent-deck@claude-mods` in a t
 
 ```bash
 claude plugin uninstall agent-deck@claude-mods
+```
+
+## cache-clock
+
+Claude caches the prompt it has already read, and a request that reuses the cache is cheaper and faster. The cache lapses after a while with no request: an hour on Claude subscriptions, five minutes on most API keys. This mod shows where that stands.
+
+### The pill
+
+At the right end of the band above the prompt, beside agent-deck's bar when it shows:
+
+- **♨ warm** and the time left before the cache lapses. The background goes from red-orange, just refreshed, to amber as it nears the end.
+- **❄ cold** on blue: nothing cached, or it lapsed.
+
+Each request the main conversation sends resets the countdown. A subagent's requests do not, as they cache a prefix of their own. After a compaction the pill reads cold until the next request.
+
+### Ping
+
+`ping` asks the model one line ("pong") over the session's own conversation, which reads the cached prefix and renews it. A toast reports what the API said: how many tokens were read from the cache (a hit, the TTL renewed), or written to it again (it had lapsed, and the ping re-cached it at the cache-write price). The countdown resets only when the API reports cache use. The button hides while a turn runs, since the turn keeps the cache warm itself.
+
+### Options
+
+| Option | Default | What it sets |
+| --- | --- | --- |
+| `ttl` | `1h` | How long the cache stays warm: `1h` on Claude subscriptions, `5m` on most API keys. |
+
+```json
+{ "pluginConfigs": { "cache-clock@claude-mods": { "options": { "ttl": "5m" } } } }
+```
+
+### Limits
+
+- The countdown is an estimate from the time of the last request and the `ttl` option: Claude Code does not tell a mod which TTL a session uses.
+- After `/model`, the new model's cache is cold, but the pill reads warm until the next request.
+
+### Uninstall
+
+```bash
+claude plugin uninstall cache-clock@claude-mods
 ```
 
 ## License
