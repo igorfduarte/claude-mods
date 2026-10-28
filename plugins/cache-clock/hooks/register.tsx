@@ -22,7 +22,23 @@ const fmtLeft = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-const fmtTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+// The pill drawn for the graphical surfaces, as tall as agent-deck's band.
+const PILL_H = 18
+const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"
+const pillWidth = (isWarm: boolean) => (isWarm ? 100 : 56)
+
+const pillSvg = (isWarm: boolean, time: string, background: string) => {
+  const W = pillWidth(isWarm)
+  const text = isWarm
+    ? `<tspan font-weight="600">♨ warm</tspan><tspan dx="6">${time}</tspan>`
+    : `<tspan font-weight="600">❄ cold</tspan>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${PILL_H}" viewBox="0 0 ${W} ${PILL_H}">
+<rect width="${W}" height="${PILL_H}" rx="${PILL_H / 2}" fill="${background}"/>
+<text x="${W / 2}" y="13" text-anchor="middle" fill="#fff" font-family="${FONT}" font-size="11" font-variant-numeric="tabular-nums">${text}</text>
+</svg>`
+}
+
+const fmtTokens =(n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 
 async function tick($: EngineInterface) {
   const at = await $.clock.now()
@@ -105,32 +121,44 @@ export const register: Register = (on, options) => {
     const drawn = await Promise.resolve(next(e)).catch(() => null)
     const below = drawn && typeof drawn === 'object' && (drawn as { type?: string }).type !== 'engine' ? drawn : null
 
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
+    const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
     const cur = await read($, heat)
     const at = Math.max(await read($, now), await $.clock.now())
     const left = remaining(cur, at)
     const isWarm = left > 0
     const background = isWarm ? warmColor(Math.min(1, left / ttl)) : COLD
     const canPing = !e.props.isWorking && !cur.isPinging
-    // On the graphical surfaces a round border in the pill's own color rounds its corners;
-    // the terminal would spend two rows on it.
-    const corners = e.surface === 'terminal' ? {} : { borderStyle: 'round', borderColor: background }
 
-    const pill = (
-      <Box key="cache-pill" flexDirection="row" flexShrink={0} alignItems="center" gap={1} paddingX={1} backgroundColor={background} {...corners}>
-        <Text color="white" bold>
-          {isWarm ? '♨ warm' : '❄ cold'}
-        </Text>
-        {isWarm && <Text color="white">{fmtLeft(left)}</Text>}
-        {canPing ? (
-          <Button key="cache-ping" label="ping" plain onPress={() => void ping($)} />
-        ) : (
-          <Text color="white" dimColor>
-            {cur.isPinging ? 'pinging…' : '·'}
-          </Text>
-        )}
-      </Box>
+    const control = canPing ? (
+      <Button key="cache-ping" label="ping" plain onPress={() => void ping($)} />
+    ) : (
+      <Text dimColor>{cur.isPinging ? 'pinging…' : '·'}</Text>
     )
+
+    // On the graphical surfaces the pill is a drawing, so its corners round
+    // without a border's extra height; the terminal draws it as text.
+    const pill =
+      Svg ? (
+        <Box key="cache-pill" flexDirection="row" flexShrink={0} alignItems="center" gap={1}>
+          <Svg
+            source={pillSvg(isWarm, isWarm ? fmtLeft(left) : '', background)}
+            alt={isWarm ? `cache warm, ${fmtLeft(left)} left` : 'cache cold'}
+            width={pillWidth(isWarm)}
+            height={PILL_H}
+          />
+          {control}
+        </Box>
+      ) : (
+        <Box key="cache-pill" flexDirection="row" flexShrink={0} alignItems="center" gap={1} paddingX={1} backgroundColor={background}>
+          <Text color="white" bold>
+            {isWarm ? '♨ warm' : '❄ cold'}
+          </Text>
+          {isWarm && <Text color="white">{fmtLeft(left)}</Text>}
+          {control}
+        </Box>
+      )
 
     if (!below) {
       return (
@@ -141,7 +169,7 @@ export const register: Register = (on, options) => {
     }
     // Shares the row of the bands beneath (agent-deck's bar) instead of a row of its own.
     return (
-      <Box flexDirection="row" alignItems="flex-start" gap={1}>
+      <Box flexDirection="row" alignItems="center" gap={1}>
         <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
           {below}
         </Box>

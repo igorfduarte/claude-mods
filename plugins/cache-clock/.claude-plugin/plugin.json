@@ -1,6 +1,6 @@
 {
   "name": "cache-clock",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A pill above the prompt that says whether the prompt cache is warm or cold, counts down to cold, and pings to keep it warm.",
   "author": {
     "name": "igorfduarte",

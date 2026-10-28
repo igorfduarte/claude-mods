@@ -844,9 +844,10 @@ export const register: Register = (on, options) => {
       // the buttons keep their room, and wrap below it rather than leave the row.
       // It also leaves SIDE_ROOM for another mod's item on the same row (cache-clock's pill).
       const W = Math.max(160, Math.min(720, (e.props.bodyColumns || 100) * 7 - 140 - SIDE_ROOM))
+      // Another mod's band (cache-clock's pill) takes the room SIDE_ROOM left on this row.
       return (
-        <Box flexDirection="column">
-          <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
+        <Box flexDirection="row" alignItems="center" gap={1}>
+          <Box flexDirection="row" flexWrap="wrap" flexGrow={1} alignItems="center" gap={1}>
             <Svg source={bandSvg(W, batch, at, s)} alt={`${s.band}: ${label}, ${percent}`} width={W} height={BAND_H} />
             <Box flexDirection="row" flexShrink={0} gap={1}>
               {crew}

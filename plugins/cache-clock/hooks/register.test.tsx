@@ -12,13 +12,21 @@ function world(on: On) {
   })
 }
 
+// What the pill says: the desktop's drawing by its alt, the terminal's by its texts.
+const said = async (ui: { find: (q: never) => Promise<{ text?: string; props: Record<string, unknown> } | undefined> }, surface: string) =>
+  surface === 'terminal'
+    ? [(await ui.find({ type: 'Text', text: /warm|cold/ } as never))?.text, (await ui.find({ type: 'Text', text: /^\d+:\d\d$/ } as never))?.text]
+        .filter(Boolean)
+        .join(' ')
+    : String((await ui.find({ type: 'Svg' } as never))?.props.alt)
+
 const band = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} }
 
 test('cold before any request, on every surface that draws the band', async ($, on) => {
   world(on)
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: band })
-    expect(await ui.find({ type: 'Text', text: /cold/ })).toBeDefined()
+    expect(await said(ui, surface)).toContain('cold')
     expect(await ui.find({ key: 'cache-ping' })).toBeDefined()
     await ui.unmount()
   }
@@ -29,10 +37,11 @@ test('warm counts down from the last hit', async ($, on) => {
   on('state.get', (_$, e) =>
     e.key === 'heat' ? { value: { value: { lastHitAt: NOW - 90_000, isPinging: false }, version: 1 } } : { value: { value: 0, version: 1 } },
   )
-  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: band })
-  expect(await ui.find({ type: 'Text', text: /warm/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /^\d+:\d\d$/ }))?.text).toBe('58:30')
-  await ui.unmount()
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: band })
+    expect(await said(ui, surface)).toBe(surface === 'terminal' ? '♨ warm 58:30' : 'cache warm, 58:30 left')
+    await ui.unmount()
+  }
 })
 
 test('a ping that reads the cache turns it warm', async ($, on) => {
@@ -60,8 +69,7 @@ test('a ping that reads the cache turns it warm', async ($, on) => {
   expect(asked.length).toBe(1)
   expect(toasts).toEqual(['cache-clock: pong · cache hit, 40.0k tokens read from the cache (TTL renewed)'])
   const after = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: band })
-  expect(await after.find({ type: 'Text', text: /warm/ })).toBeDefined()
-  expect((await after.find({ type: 'Text', text: /^\d+:\d\d$/ }))?.text).toBe('60:00')
+  expect(await said(after, 'desktop')).toBe('cache warm, 60:00 left')
   await after.unmount()
 })
 
@@ -72,12 +80,11 @@ test('no ping button while a turn runs', async ($, on) => {
   await ui.unmount()
 })
 
-test('the pill is rounded on the desktop, borderless on the terminal', async ($, on) => {
+test("the desktop pill is a rounded drawing as tall as agent-deck's band", async ($, on) => {
   world(on)
-  const desk = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: band })
-  expect((await desk.find({ key: 'cache-pill' }))?.props.borderStyle).toBe('round')
-  await desk.unmount()
-  const term = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: band })
-  expect((await term.find({ key: 'cache-pill' }))?.props.borderStyle).toBeUndefined()
-  await term.unmount()
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: band })
+  const pill = await ui.find({ type: 'Svg' })
+  expect(pill?.props.height).toBe(18)
+  expect(String(pill?.props.source)).toContain('rx="9"')
+  await ui.unmount()
 })
