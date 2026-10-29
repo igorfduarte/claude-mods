@@ -207,12 +207,12 @@ A vague prompt costs a turn: the agent guesses, or asks back. This mod checks ea
 
 ### How it works
 
-1. [Jev](https://docs.typesafe.ai), TypeSafe's decision model, is asked whether the prompt could be rewritten so the agent understands it clearly better. It answers a probability.
+1. [Jev](https://docs.typesafe.ai), TypeSafe's decision model, is asked whether the prompt could be restructured so the agent understands it clearly better: whether the goal or expected result is stated, constraints that matter are stated, and several requests are separated and ordered. Spelling, accents, capitalization, punctuation and informal tone do not count. It answers a probability.
 2. Below the threshold, the prompt is sent as typed, with nothing shown.
-3. At or above it, the prompt is held, Claude rewrites it (same language, intent, facts, file names and constraints; nothing added), and the rewrite replaces your draft in the prompt box. A toast shows Jev's score, and the original is kept as a line in the transcript.
+3. At or above it, the prompt is held, Claude restructures it (same language, intent, facts, file names and constraints; nothing added), and the rewrite replaces your draft in the prompt box. A toast shows Jev's score, and the original is kept as a line in the transcript.
 4. Enter sends the rewrite, or whatever you edited it into, without a second check.
 
-Prompts pass unchecked when they are shorter than 25 characters, are slash commands, carry images or other attachments, or start with `!!` (the prefix is removed). If Jev or the rewrite fails, the prompt is sent as typed.
+Prompts pass unchecked when they are shorter than 25 characters or 5 words, are slash commands, carry images or other attachments, did not come from you (task notifications, other sessions' messages), or start with `##` (the prefix is removed). If Jev or the rewrite fails, the prompt is sent as typed.
 
 ### Setup
 

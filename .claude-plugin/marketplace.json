@@ -28,7 +28,7 @@
       "name": "prompt-polish",
       "source": "./plugins/prompt-polish",
       "description": "Before a prompt is sent, Jev decides whether it could be written better; if so, Claude rewrites it and puts it back in the box for review.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "mod"
     }
   ]
