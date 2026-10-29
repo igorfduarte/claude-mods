@@ -1,0 +1,27 @@
+{
+  "name": "prompt-polish",
+  "version": "0.1.0",
+  "description": "Before a prompt is sent, Jev decides whether it could be written better; if so, Claude rewrites it and puts it back in the box for review.",
+  "author": {
+    "name": "igorfduarte",
+    "url": "https://github.com/igorfduarte"
+  },
+  "homepage": "https://github.com/igorfduarte/claude-mods/tree/main/plugins/prompt-polish",
+  "repository": "https://github.com/igorfduarte/claude-mods",
+  "license": "MIT",
+  "userConfig": {
+    "threshold": {
+      "type": "number",
+      "title": "Threshold (0 to 1)",
+      "description": "Jev's probability that the prompt could be written better at or above which it is held and rewritten. Higher holds fewer prompts.",
+      "default": 0.8
+    },
+    "rewriteModel": {
+      "type": "string",
+      "title": "Rewrite model",
+      "description": "The model that rewrites a held prompt, at effort low: haiku is faster and cheaper, sonnet keeps facts and constraints more reliably.",
+      "options": ["haiku", "sonnet"],
+      "default": "haiku"
+    }
+  }
+}

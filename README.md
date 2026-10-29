@@ -7,6 +7,7 @@ Mods for [Claude Code](https://claude.com/claude-code). Each one is a standalone
 | [context-handoff](#context-handoff) | Watches the context window. Past a threshold, the agent writes a thorough handoff, the session compacts, and the handoff comes back with your next message, so long sessions keep their context. |
 | [agent-deck](#agent-deck) | A live side panel of every subagent in the session (what it is doing, its steps, context and time) and a progress bar above the prompt for the subagents running now. |
 | [cache-clock](#cache-clock) | A pill above the prompt that says whether the prompt cache is warm or cold, counts down to cold, and pings to keep it warm. |
+| [prompt-polish](#prompt-polish) | Before a prompt is sent, Jev decides whether it could be written better; if so, Claude rewrites it and puts it back in the prompt box for you to review. |
 
 ## Install
 
@@ -16,6 +17,7 @@ At the prompt of a Claude Code terminal session, with the mod's name from the ta
 /plugin install context-handoff --marketplace igorfduarte/claude-mods
 /plugin install agent-deck --marketplace igorfduarte/claude-mods
 /plugin install cache-clock --marketplace igorfduarte/claude-mods
+/plugin install prompt-polish --marketplace igorfduarte/claude-mods
 ```
 
 Answer `y` to add the marketplace, pick a scope (user is the default), and set the options or keep the defaults.
@@ -197,6 +199,50 @@ Each request the main conversation sends resets the countdown. A subagent's requ
 
 ```bash
 claude plugin uninstall cache-clock@claude-mods
+```
+
+## prompt-polish
+
+A vague prompt costs a turn: the agent guesses, or asks back. This mod checks each prompt when you press Enter and offers a clearer one before anything is sent.
+
+### How it works
+
+1. [Jev](https://docs.typesafe.ai), TypeSafe's decision model, is asked whether the prompt could be rewritten so the agent understands it clearly better. It answers a probability.
+2. Below the threshold, the prompt is sent as typed, with nothing shown.
+3. At or above it, the prompt is held, Claude rewrites it (same language, intent, facts, file names and constraints; nothing added), and the rewrite replaces your draft in the prompt box. A toast shows Jev's score, and the original is kept as a line in the transcript.
+4. Enter sends the rewrite, or whatever you edited it into, without a second check.
+
+Prompts pass unchecked when they are shorter than 25 characters, are slash commands, carry images or other attachments, or start with `!!` (the prefix is removed). If Jev or the rewrite fails, the prompt is sent as typed.
+
+### Setup
+
+The mod reads a TypeSafe API key from `JEV_API_KEY`. Without it, every prompt is sent unchecked. Set it in your environment, or in `~/.claude/settings.json`:
+
+```json
+{ "env": { "JEV_API_KEY": "..." } }
+```
+
+### Options
+
+| Option | Default | What it sets |
+| --- | --- | --- |
+| `threshold` | `0.8` | Jev's probability at or above which a prompt is held and rewritten. Higher holds fewer prompts. |
+| `rewriteModel` | `haiku` | The model that rewrites, at effort low: `haiku` is faster and cheaper, `sonnet` keeps facts and constraints more reliably. |
+
+```json
+{ "pluginConfigs": { "prompt-polish@claude-mods": { "options": { "threshold": 0.85, "rewriteModel": "sonnet" } } } }
+```
+
+### Limits
+
+- Every checked prompt goes to TypeSafe's API, hosted in the US, and Jev costs US$ 0.042 per million input tokens. The rewrite uses your Claude session.
+- Each checked prompt waits for Jev before it is sent, and a held one for the rewrite as well.
+- Jev's score varies with the wording: a rewrite can score above the threshold too.
+
+### Uninstall
+
+```bash
+claude plugin uninstall prompt-polish@claude-mods
 ```
 
 ## License
