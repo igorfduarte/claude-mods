@@ -214,6 +214,8 @@ A vague prompt costs a turn: the agent guesses, or asks back. This mod checks ea
 
 Prompts pass unchecked when they are shorter than 25 characters or 5 words, are slash commands, carry images or other attachments, did not come from you (task notifications, other sessions' messages), or start with `##` (the prefix is removed). If Jev or the rewrite fails, the prompt is sent as typed.
 
+Start a prompt with `$$` to have it rewritten anyway: Jev is not asked, the length limits do not apply, and the prefix is removed. If the rewrite fails or changes nothing, the prompt is sent as typed.
+
 ### Setup
 
 The mod reads a TypeSafe API key from `JEV_API_KEY`. Without it, every prompt is sent unchecked. Set it in your environment, or in `~/.claude/settings.json`:
