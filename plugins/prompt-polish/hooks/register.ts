@@ -8,6 +8,9 @@ const JEV_MODEL = 'jev-1.14.0'
 const MIN_CHARS = 25
 const MIN_WORDS = 5
 const SKIP_PREFIX = '##' // "## texto" sends as-is, without the prefix
+// The app can attach <system-reminder> blocks to the text; they are not what you typed.
+const REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g
+const LEADING_SKIP = /^((?:\s*<system-reminder>[\s\S]*?<\/system-reminder>)*\s*)##\s*/
 const MODELS = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5' } as const
 
 const REWRITE_SYSTEM = `You rewrite a message a person is about to send to an AI coding agent, so the agent understands it better.
@@ -28,8 +31,9 @@ export const register: Register = (on, options) => {
     // Only what a person typed: notifications and peers' messages pass.
     if (e.origin.kind !== 'composer' && e.origin.kind !== 'bridge') return next(e)
 
-    if (e.text.startsWith(SKIP_PREFIX)) {
-      return next({ ...e, text: e.text.slice(SKIP_PREFIX.length).trimStart() })
+    const draft = e.text.replace(REMINDER, '').trim()
+    if (draft.startsWith(SKIP_PREFIX)) {
+      return next({ ...e, text: e.text.replace(LEADING_SKIP, '$1') })
     }
 
     if (filled !== undefined) {
@@ -37,7 +41,6 @@ export const register: Register = (on, options) => {
       return next(e)
     }
 
-    const draft = e.text.trim()
     if (draft.length < MIN_CHARS || draft.split(/\s+/).length < MIN_WORDS) {
       $.ui.log(`prompt-polish: short (${draft.length} chars), sent unchecked`, { to: 'debug' })
       return next(e)
@@ -54,7 +57,7 @@ export const register: Register = (on, options) => {
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: JEV_MODEL,
-        state: e.text,
+        state: draft,
         questions: {
           better: {
             type: 'noul',
@@ -82,12 +85,12 @@ export const register: Register = (on, options) => {
       model,
       effort: 'low',
       system: REWRITE_SYSTEM,
-      prompt: e.text,
+      prompt: draft,
       maxTokens: 4000,
       timeoutMs: 30000,
     })
     const rewritten = r.isAnswered ? r.text.trim() : ''
-    if (!rewritten || rewritten === e.text.trim()) return next(e)
+    if (!rewritten || rewritten === draft) return next(e)
 
     const box = await $.prompt.fill({ text: rewritten })
     if (!box.isFilled) return next(e)
